@@ -1,10 +1,22 @@
-const sdk = require("@defillama/sdk")
-const token = '0xbe9895146f7af43049ca1c1ae358b0541ea49704'
+const ADDRESSES = require('../helper/coreAssets.json')
+const { get } = require('../helper/http')
+const BigNumber = require('bignumber.js')
+
+const ETH = ADDRESSES.null
 
 module.exports = {
+  timetravel: false,
   ethereum: {
-    tvl: async (_, block) => ({
-      [token]: (await sdk.api.erc20.totalSupply({ target: token, block})).output
-    })
+    tvl: async () => {
+      const data = await get("https://api.exchange.coinbase.com/wrapped-assets/CBETH")
+      // Convert circulating cbETH to the amount of underlying ETH backing the wrapper
+      const circulatingSupply = new BigNumber(data.circulating_supply || 0)
+      const conversionRate = new BigNumber(data.conversion_rate || 0)
+      const underlyingETH = circulatingSupply.times(conversionRate)
+
+      return {
+        [ETH]: underlyingETH.shiftedBy(18).toFixed(0),
+      }
+    }
   }
 }

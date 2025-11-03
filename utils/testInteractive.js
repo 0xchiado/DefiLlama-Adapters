@@ -1,9 +1,17 @@
 const inquirer = require('inquirer')
 const childProcess = require('child_process')
 inquirer.registerPrompt('fuzzypath', require('inquirer-fuzzy-path'))
+
+// Load environment variables before changing directories
+require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') })
+
 console.log('Starting directory: ' + process.cwd());
+const args = process.argv.slice(2); // The first two elements are 'node' and the script filename
+
+const NEW_DIR = './projects/' + (args[0] ?? '')
+
 try {
-  process.chdir('./projects/');
+  process.chdir(NEW_DIR);
   console.log('New directory: ' + process.cwd());
 }
 catch (err) {
@@ -22,23 +30,15 @@ const adapterPrompt = {
   suggestOnly: false,
   depthLimit: 0,
 }
-const enableDebugPrompt = {
-  type: 'confirm',
-  name: 'debugMode',
-  message: 'Enable Debug Mode:',
-  default: false
-}
-
 
 async function run() {
   let adapterPath
   const { debugMode, ...response } = await inquirer.prompt([
-    // enableDebugPrompt, 
     adapterPrompt,
   ])
   adapterPath = response.adapterPath
 
-  while (true) {   // eslint-disable-line
+  while (true) {
     adapterPrompt.default = adapterPath
     await runAdapter(adapterPath, true)
     const answer = await inquirer.prompt([adapterPrompt])

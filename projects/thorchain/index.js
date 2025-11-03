@@ -19,6 +19,10 @@ const chainMapping = {
   BCH: 'bitcoin-cash',
   DOGE: 'dogecoin',
   GAIA: 'cosmos',
+  BASE: 'base',
+  BSC: 'bsc',
+  XRP: 'ripple',
+  THOR: 'thorchain',
 }
 
 const defillamaChainMapping = {
@@ -37,12 +41,14 @@ const tokenGeckoMapping = {
   'BNB.BTCB-1DE': 'bitcoin-bep2',
   'BNB.AVA-645': 'concierge-io',
   'BNB.ETH-1C9': 'ethereum',
+  'THOR.RUJI': 'rujira',
+  'THOR.TCY': 'tcy',
 }
 
 
 const blacklistedPools = []
 
-async function tvl(_, _1, _2, { api }) {
+async function tvl(api) {
   const pools = await getCache('https://midgard.ninerealms.com/v2/pools')
   const aChain = api.chain
 
@@ -54,7 +60,6 @@ async function tvl(_, _1, _2, { api }) {
     if (blacklistedPools.includes(pool)) return;
     if (aChain === 'thorchain') {
       sdk.util.sumSingleBalance(balances, 'thorchain', runeDepth/1e8)
-      return;
     }
     if (+totalDepth < 1) return;
     let [chainStr, token] = pool.split('.')
@@ -63,7 +68,7 @@ async function tvl(_, _1, _2, { api }) {
     if (dChain !== aChain) return;
 
     let [baseToken, address] = token.split('-')
-    if (['ethereum', 'bsc', 'avax'].includes(chain)) {
+    if (['ethereum', 'bsc', 'avax', 'base'].includes(chain)) {
       totalDepth = totalDepth * (10 ** (+nativeDecimal - 8))
       if (address && address.length > 8) {
         address = address.toLowerCase()
@@ -90,7 +95,8 @@ async function tvl(_, _1, _2, { api }) {
 
 module.exports = {
   hallmarks: [
-    [1658145600, "Kill Switch"] //https://twitter.com/THORChain/status/1549078524253847553?ref_src=twsrc%5Etfw%7Ctwcamp%5Etweetembed%7Ctwterm%5E1549078524253847553%7Ctwgr%5Edf22fb0a2751e6182143d32b477f2b7f759b8a9f%7Ctwcon%5Es1_&ref_url=https%3A%2F%2Ffinance.yahoo.com%2Fnews%2Fthorchain-phases-support-rune-tokens-123034231.html
+    // [1626656400, "Protocol paused"],
+    [1631754000, "Protocol resumed"],
   ],
   timetravel: false,
   thorchain: {

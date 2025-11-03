@@ -53,56 +53,53 @@ async function tvl() {
   const repay_tvl = parseInt(await get("https://api.fluidtokens.com/get-total-available-repayments"));
 
   const pools_tvl= parseInt(await get("https://api.fluidtokens.com/get-total-available-pools"));
+
+  const boosted_tvl= await get("https://api.fluidtokens.com/get-ft-stats");
+
+  const boosted=parseInt(boosted_tvl.bs_available_volume)+parseInt(boosted_tvl.bs_active_volume);
+
+const lending_v3 = await get("https://api.fluidtokens.com/get-tvl");
+
+const principal = lending_v3.collectionOfferPools.principal;
+const collateral = lending_v3.loans.collateral;
+
+// Sum and convert to integer
+const total_v3 = Math.floor(principal + collateral);
+  
   return {
-    cardano: (SC_offers_tvl+repay_tvl+pools_tvl) / 1e6,
+    // cardano: (SC_offers_tvl+repay_tvl+pools_tvl+boosted) / 1e6,
+    cardano: (SC_offers_tvl+pools_tvl+boosted+total_v3) / 1e6,
   };
 }
 
+async function staking() {
+  const data = await get("https://api.fluidtokens.com/get-ft-stats");
+  let staking = parseInt(data.staking_tvl);
+  
+  return {
+    cardano: (staking) / 1e6,
+  };
+}
 
-async function borrowed(
-  ts //timestamp in seconds
-) {
-  const data = await get("https://api.fluidtokens.com/get-active-loans");
-  let SC1_tvl = 0;
-  let SC2_tvl = 0;
+async function borrowed() {
+  const data = await get("https://api.fluidtokens.com/get-ft-stats");
+  let SC_tvl = parseInt(data.active_loans_volume);
 
-  const timeNow = ts * 1e3;
-  data
-    .filter((i) => {
-      //select SC1 active inputs
-      return i.SCversion == 1 && i.timeToEndLoan >= timeNow;
-    })
-    .forEach((i) => {
-      SC1_tvl += +i.loanData.AMOUNT;
-    });
-  data
-    .filter((i) => {
-      //select SC2 inputs
-      return i.SCversion == 2;
-    })
-    .filter((x) => {
-      return (
-        //filter by active loans
-        x.activeLoanData.lendDate +
-          x.loanRequestData.loanDuration *
-            3.6 *
-            1e6 /* hours in milliseconds */ >=
-        timeNow
-      );
-    })
-    .forEach((x) => {
-      SC2_tvl += parseInt(x.loanRequestData.loanAmnt);
-    });
-    
+ 
   const dataOffers = await get("https://api.fluidtokens.com/get-available-collection-offers");
   let SC_offers_tvl = 0;
+
+
+  const lending_v3 = await get("https://api.fluidtokens.com/get-tvl");
+const lent = lending_v3.loans.principal;
+
   
   dataOffers.forEach((i) => {
       SC_offers_tvl += parseInt(i.offerData.loanAmnt);
     });
   
   return {
-    cardano: (SC1_tvl + SC2_tvl) / 1e6,
+    cardano: (SC_tvl+lent) / 1e6,
   };
 }
 
@@ -113,9 +110,10 @@ module.exports = {
   cardano: {
     tvl,
     borrowed,
+    staking
   },
   hallmarks: [
-    [Math.floor(new Date("2023-01-01") / 1e3), "Count only active loans"],
-    [Math.floor(new Date("2023-06-27") / 1e3), "ADA loaned out is counted under borrowed"],
+    ["2023-01-01", "Count only active loans"],
+    ["2023-06-27", "ADA loaned out is counted under borrowed"],
   ],
 };

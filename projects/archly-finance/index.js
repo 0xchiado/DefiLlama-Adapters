@@ -36,6 +36,16 @@ module.exports = {
             restrictTokenRatio: 100,
         })
     },
+    base: {
+        tvl: getUniTVL({ factory: ARCHLY_FACTORY_OTHER, seDefaultCoreAssets: true, hasStablePools: true, }),
+        staking: sumTokensExport({
+            owner: "0x4c01dF6B9be381BA2a687D0ED5c40039dEEaf0a9",
+            tokens: [ARCHLY_ARC_TOKEN_OTHER],
+            lps: ['0x80dd4A2837AF3233176704142Fb44a216e170Ab3'],
+            coreAssets: [ADDRESSES.base.WETH],
+            restrictTokenRatio: 100,
+        })
+    },
     bsc: {
         tvl: getUniTVL({ factory: ARCHLY_FACTORY_OTHER, seDefaultCoreAssets: true, hasStablePools: true, }),
         staking: sumTokensExport({
@@ -72,7 +82,7 @@ module.exports = {
             owner: ARCHLY_VE_TOKEN_OTHER,
             tokens: [ARCHLY_ARC_TOKEN_OTHER],
             lps: ['0xc492BCa6777818256C2e2e5FC8e180BC8697DfF5'],
-            coreAssets: [ADDRESSES.tombchain.FTM],
+            coreAssets: [ADDRESSES.optimism.WETH_1],
             restrictTokenRatio: 100,
         })
     },

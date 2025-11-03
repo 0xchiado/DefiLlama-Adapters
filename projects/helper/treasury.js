@@ -1,55 +1,131 @@
 const ADDRESSES = require('./coreAssets.json')
-const { sumTokensExport, nullAddress, } = require('../helper/sumTokens')
-const { covalentGetTokens } = require('./http')
-const axios = require("axios")
+const { sumTokensExport, nullAddress } = require('./sumTokens')
+const { ankrChainMapping } = require('./token')
+const { defaultTokens } = require('./cex')
+const { getUniqueAddresses } = require('./utils')
+const sdk = require('@defillama/sdk')
+const axios = require('axios')
+const { getEnv } = require('./env')
 
 const ARB = ADDRESSES.arbitrum.ARB;
+const API_URL_COMPLEX  = `https://pro-openapi.debank.com/v1/user/all_complex_protocol_list`
+
+const ACCESSKEY = getEnv('DEBANK_API_KEY')
+
+const debankToLlamaChain = {
+  eth: 'ethereum',
+  op: 'optimism',
+  arb: 'arbitrum',
+  avax: 'avax',
+  bsc: 'bsc',
+  ftm: 'fantom',
+  sonic: 'sonic',
+  base: 'base',
+  matic: 'polygon',
+  frax: 'fraxtal',
+  mnt: 'mantle'
+};
+
+function getLlamaChain(debankChain) {
+  return debankToLlamaChain[debankChain] || debankChain;
+}
 
 function treasuryExports(config) {
-  const chains = Object.keys(config)
-  const exportObj = {  }
-  chains.forEach(chain => {
-    let { ownTokenOwners = [], ownTokens = [], owners = [], fetchTokens = false, tokens = [], blacklistedTokens = [] } = config[chain]
-    if (chain === 'solana')  config[chain].solOwners = owners
-    if (chain === 'solana')  config[chain].solOwners = owners
-    const tvlConfig = { ...config[chain] }
-    tvlConfig.blacklistedTokens = [...ownTokens, ...blacklistedTokens]
-    if(fetchTokens === true){
-      exportObj[chain] = { tvl: async (_, _b, _cb, { api }) => {
-        const tokens = await Promise.all(owners.map(address=>covalentGetTokens(address, chain)))
-        const uniqueTokens = new Set([...config[chain].tokens, ...tokens.flat()])
-        tvlConfig.tokens = Array.from(uniqueTokens)
-        return sumTokensExport(tvlConfig)(_, _b, _cb, api)
-      }}
-    } else {
-      if (chain === 'arbitrum')  {
-        tvlConfig.tokens = [...tokens, ARB]
+  const { isComplex, complexOwners = [], ...chains } = config;
+
+  const exportObj = {};
+
+  let fetchPromise = null;
+
+  async function getComplexData() {
+    if (!fetchPromise) {
+      fetchPromise = Promise.all(
+        complexOwners.map(id =>
+          axios.get(API_URL_COMPLEX, {
+            params: { id, is_all: true },
+            headers: {
+              'accept': 'application/json',
+              'AccessKey': ACCESSKEY,
+            },
+          }).then(r => ({ id, tokens: r.data }))
+        )
+      );
+    }
+    return fetchPromise;
+  }
+
+  Object.keys(chains).forEach(chain => {
+    let { ownTokenOwners = [], ownTokens = [], owners = [], tokens = [], blacklistedTokens = [] } = config[chain]
+    const tvlConfig = { permitFailure: true, ...config[chain] };
+
+    if (chain === 'solana') {
+      tvlConfig.solOwners = owners;
+    } else if (config[chain].fetchCoValentTokens !== false) {
+      if (ankrChainMapping[chain]) {
+        tvlConfig.fetchCoValentTokens = true;
+        if (!tvlConfig.tokenConfig) tvlConfig.tokenConfig = { onlyWhitelisted: false };
+      } else if (defaultTokens[chain]) {
+        tvlConfig.tokens = [tokens, defaultTokens[chain]].flat();
       }
-      exportObj[chain] = { tvl: sumTokensExport(tvlConfig) }
+    }
+
+    tvlConfig.blacklistedTokens = [...ownTokens, ...blacklistedTokens];
+
+    if (chain === 'arbitrum') tvlConfig.tokens = [...tokens, ARB];
+    if (!Array.isArray(tvlConfig.tokens)) tvlConfig.tokens = [];
+
+    const baseExport = { tvl: sumTokensExport(tvlConfig) };
+
+    const complexExport = isComplex ? {
+      [chain]: {
+        tvl: async (api) => {
+          if (!complexOwners.length) return api.getBalances();
+          const data = await getComplexData();
+          if (!data.length) return api.getBalances();
+
+          const blacklist = new Set(getUniqueAddresses([...ownTokens, ...blacklistedTokens], false));
+
+          for (const entry of data) {
+            for (const token of entry.tokens || []) {
+              if (getLlamaChain(token.chain) !== chain) continue;
+              for (const { asset_token_list = [], pool } of token.portfolio_item_list || []) {
+                for (const { id: rawId, decimals, amount } of asset_token_list) {
+                  if (!rawId) continue;
+                  const addr = rawId === 'eth' ? nullAddress : rawId.toLowerCase();
+                  if (blacklist.has(addr)) continue;
+                  api.add(addr, amount * 10 ** decimals);
+                  if (pool && pool.id) api.removeTokenBalance(pool.id.toLowerCase());
+                }
+              }
+            }
+          }
+          return api.getBalances();
+        }
+      }
+    } : null;
+
+    if (isComplex) {
+      exportObj[chain] = {
+        tvl: sdk.util.sumChainTvls([baseExport.tvl, complexExport[chain].tvl])
+      };
+    } else {
+      exportObj[chain] = baseExport;
     }
 
     if (ownTokens.length > 0) {
-      const { solOwners, ...otherOptions } = config[chain]
-      const options = { ...otherOptions, owners: [...owners, ...ownTokenOwners], tokens: ownTokens, chain, uniV3WhitelistedTokens: ownTokens}
-      exportObj[chain].ownTokens = sumTokensExport(options)
+      const { solOwners, ...other } = config[chain];
+      const opts = {
+        ...other,
+        owners: [...owners, ...ownTokenOwners],
+        tokens: ownTokens,
+        chain,
+        uniV3WhitelistedTokens: ownTokens,
+      };
+      exportObj[chain].ownTokens = sumTokensExport(opts);
     }
-  })
-  return exportObj
-}
+  });
 
-async function getComplexTreasury(owners){
-  const networks = ["ethereum", "polygon", "optimism", "gnosis", "binance-smart-chain", "fantom", "avalanche", "arbitrum",
-    "celo", "harmony", "moonriver", "bitcoin", "cronos", "aurora", "evmos"]
-  const data = await axios.get(`https://api.zapper.xyz/v2/balances/apps?${owners.map(a=>`addresses=${a}`).join("&")}&${networks.map(a=>`networks=${a}`).join("&")}`, {
-    headers:{
-      Authorization: `Basic ${btoa(process.env.ZAPPER_API_KEY)}`
-    }
-  })
-  let sum = 0
-  data.data.forEach(d=>{
-    sum+=d.balanceUSD
-  })
-  return sum
+  return exportObj;
 }
 
 function ohmStaking(exports) {
@@ -57,7 +133,7 @@ function ohmStaking(exports) {
   const newExports = {}
   Object.entries(exports).forEach(([chain, value]) => {
     if (typeof value === 'object' && typeof value.tvl === 'function') {
-      newExports[chain] = { ...value, tvl: dummyTvl}
+      newExports[chain] = { ...value, tvl: dummyTvl }
     } else {
       newExports[chain] = value
     }
@@ -70,7 +146,7 @@ function ohmTreasury(exports) {
   const newExports = {}
   Object.entries(exports).forEach(([chain, value]) => {
     if (typeof value === 'object' && typeof value.staking === 'function') {
-      newExports[chain] = { ...value,}
+      newExports[chain] = { ...value, }
       delete newExports[chain].staking
     } else {
       newExports[chain] = value
@@ -82,7 +158,6 @@ function ohmTreasury(exports) {
 module.exports = {
   nullAddress,
   treasuryExports,
-  getComplexTreasury,
   ohmTreasury,
   ohmStaking,
 }
